@@ -88,7 +88,7 @@ function match(url, method) {
   };
   if (p === '/api/svc/status' && method === 'GET') return async (req, res) => {
     try { const j = await services.listAll(); const u = new URL(req.url, 'http://x'); const k = services.cleanKey(u.searchParams.get('key') || '');
-      const one = j.find(x => x.key === k); jres(res, one ? { ok: true, running: one.running, open: one.open, starting: one.starting, pid: one.pid } : { ok: false, error: 'unknown key' }) } catch (e) { jres(res, { ok: false, error: e.message }) }
+      const one = j.find(x => x.key === k); jres(res, one ? { ok: true, running: one.running, open: one.open, starting: one.starting, pid: one.pid, openPorts: one.openPorts || [] } : { ok: false, error: 'unknown key' }) } catch (e) { jres(res, { ok: false, error: e.message }) }
   };
   if (p === '/api/svc/icon' && method === 'GET') return async (req, res) => {
     const u = new URL(req.url, 'http://x');

@@ -104,10 +104,18 @@ async function serviceProcs(target, force) {
 function norm(o) {
   o = o || {};
   const port = Number(o.port) || 0;
+  /* 附加端口：RVC 这类主程序 + TTS 动态前端，会占多个端口 */
+  let ports = [];
+  if (Array.isArray(o.ports)) ports = o.ports;
+  else if (typeof o.ports === 'string') { try { ports = JSON.parse(o.ports) } catch (e) { ports = o.ports.split(/[,，\s]+/).filter(Boolean) } }
+  else if (o.ports !== undefined && o.ports !== null && o.ports !== '') ports = [o.ports];
+  if (!Array.isArray(ports)) ports = [ports];
+  ports = [...new Set(ports.map(Number).filter(n => n > 0 && n < 65536))].slice(0, 12);
   return {
     key: cleanKey(o.key) || cleanKey(o.name) || ('svc-' + Date.now()),
     name: String(o.name || '').trim().slice(0, 40),
     port: port > 0 && port < 65536 ? port : 0,
+    ports: ports,
     path: String(o.path || '').trim().replace(/^["']+|["']+$/g, '').slice(0, 500),
     url: String(o.url || '').trim().slice(0, 300),
     ico: String(o.ico || '').trim().slice(0, 20) || 'svc',
@@ -120,6 +128,16 @@ function valid(s) {
   if (!s.port) return '网页端口不能为空（靠它判断在不在运行、内嵌网页）';
   if (!s.path) return '本地路径不能为空（填要拉起的 exe / bat / 脚本 / 文件夹）';
   return '';
+}
+/* 一个模块占用的所有端口 = 主端口 + 附加端口 */
+function allPorts(s) { return [...new Set([s.port, ...(Array.isArray(s.ports) ? s.ports : [])].filter(n => Number(n) > 0))].map(Number) }
+function portsClash(list, self, s) {
+  const mine = allPorts(s);
+  for (const x of list) {
+    if (self && x.key === self) continue;
+    for (const p of allPorts(x)) if (mine.indexOf(p) >= 0) return p;
+  }
+  return 0;
 }
 
 /* ── 本地路径 → 真正要执行的程序 ── */
@@ -193,13 +211,17 @@ const STARTING_WINDOW = 120;
 async function listAll() {
   const out = [];
   for (const s of load()) {
-    const open = s.port ? await shared.portOpen(s.port) : false;
+    /* 主端口没开但附加端口开了（如 RVC 只起了 TTS 前端）也算在运行 */
+    const ps = allPorts(s);
+    let open = false, openPorts = [], pid = null;
+    for (const p of ps) {
+      if (await shared.portOpen(p)) { open = true; openPorts.push(p); if (!pid) { try { pid = await shared.portPid(p) } catch (e) {} } }
+    }
     const r = resolveTarget(s.path);
-    let pid = null;
-    if (open) { try { pid = await shared.portPid(s.port) } catch (e) {} }
     const starting = !open && rtFresh(s.key, STARTING_WINDOW);
     let hasLog = false; try { hasLog = fs.statSync(logFile(s.key)).size > 0 } catch (e) {}
     out.push(Object.assign({}, s, {
+      ports: ps.slice(1), openPorts,
       running: !!open || starting, open: !!open, starting,
       pid: pid ? Number(pid) : null, hasLog: !!hasLog,
       resolved: r.ok ? r.file : '', resolveErr: r.ok ? '' : r.err
@@ -247,7 +269,8 @@ function create(o) {
     let n = 2; while (list.some(x => x.key === base + '-' + n)) n++;
     s.key = base + '-' + n;
   }
-  if (list.some(x => x.port === s.port)) return { ok: false, error: '端口 ' + s.port + ' 已被其他模块占用' };
+  const clash = portsClash(list, 0, s);
+  if (clash) return { ok: false, error: '端口 ' + clash + ' 已被其他模块占用' };
   const r = resolveTarget(s.path);
   if (!r.ok) return { ok: false, error: r.err };
   s.createdAt = Date.now();
@@ -260,7 +283,8 @@ function update(key, o) {
   if (i < 0) return { ok: false, error: '模块不存在' };
   const s = norm(Object.assign({}, list[i], o, { key: k })); const bad = valid(s);
   if (bad) return { ok: false, error: bad };
-  if (list.some((x, ix) => ix !== i && x.port === s.port)) return { ok: false, error: '端口 ' + s.port + ' 已被其他模块占用' };
+  const clash = portsClash(list, k, s);
+  if (clash) return { ok: false, error: '端口 ' + clash + ' 已被其他模块占用' };
   const r = resolveTarget(s.path);
   if (!r.ok) return { ok: false, error: r.err };
   s.createdAt = list[i].createdAt || Date.now();
@@ -330,19 +354,25 @@ async function stop(key) {
   const target = r.ok ? r.file : '';
   const procs = target ? await serviceProcs(target, true) : [];
   if (!open && !procs.length) return { ok: false, error: '未在运行', notRunning: true };
-  const portPid = open ? await shared.portPid(s.port) : null;
+  /* 所有端口的占用进程都要收：RVC 的 TTS 前端是运行时动态另开的端口 */
+  const portPids = [];
+  for (const p of allPorts(s)) { const pp = await shared.portPid(p); if (pp && portPids.indexOf(Number(pp)) < 0) portPids.push(Number(pp)); }
   /* 先杀端口占用进程（带整棵树），再把剩下的启动器 / venv 进程收掉（bat 末尾的 pause 会卡住 cmd）*/
   const killed = [];
-  if (portPid) { await shared.sh('taskkill /F /T /PID ' + portPid); killed.push(Number(portPid)); }
+  for (const pp of portPids) { await shared.sh('taskkill /F /T /PID ' + pp); killed.push(pp); }
   for (const p of procs.slice(0, 40)) {
     if (killed.indexOf(p.pid) >= 0) continue;
     await shared.sh('taskkill /F /T /PID ' + p.pid);
     killed.push(p.pid);
   }
   rtSet(s.key, 0);
-  try { fs.appendFileSync(currentLogFile(s.key), '\n[hub] ' + new Date().toLocaleString('sv-SE') + ' | stop: port ' + s.port + ' 已结束进程 ' + (killed.join(',') || portPid || '?') + '\n') } catch (e) {}
-  for (let i = 0; i < 6; i++) { await new Promise(r2 => setTimeout(r2, 400)); if (!await shared.portOpen(s.port)) break }
-  return { ok: true, pid: portPid || (killed[0] || null), shell: killed };
+  try { fs.appendFileSync(currentLogFile(s.key), '\n[hub] ' + new Date().toLocaleString('sv-SE') + ' | stop: ports ' + allPorts(s).join(',') + ' 已结束进程 ' + (killed.join(',') || portPids.join(',') || '?') + '\n') } catch (e) {}
+  for (let i = 0; i < 6; i++) {
+    let any = false; for (const p of allPorts(s)) if (await shared.portOpen(p)) { any = true; break }
+    if (!any) break;
+    await new Promise(r2 => setTimeout(r2, 400));
+  }
+  return { ok: true, pid: portPids[0] || (killed[0] || null), shell: killed };
 }
 
 /* 日志读出来要像 cmd 窗口：cmd 自己的消息是 GBK，脚本（PYTHONUTF8=1）吐的是 UTF-8，

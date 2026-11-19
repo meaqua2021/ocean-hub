@@ -4,7 +4,7 @@
 import { ref, computed, watch, nextTick, inject, onMounted, onUnmounted } from 'vue';
 import SvcFormDialog from '../../components/SvcFormDialog.vue';
 import { toast } from '../../api/toast.js';
-import { serviceState, serviceLogs, svcDisplayUrl, updateService } from '../../api/services.js';
+import { serviceState, serviceLogs, svcDisplayUrl, svcPorts, updateService } from '../../api/services.js';
 
 const props = defineProps({ module: Object });
 const ohRefreshMods = inject('ohRefreshMods', () => Promise.resolve());
@@ -19,6 +19,10 @@ const showLog = ref(false);
 function toggleLog() { showLog.value = !showLog.value; if (showLog.value) loadLog(); }
 const logBox = ref(null);
 const frameKey = ref(0);
+const curPort = ref(0);   // 当前内嵌的端口，0=用主端口
+const ports = computed(() => svcPorts(props.module || {}));
+function pickPort(p) { curPort.value = p; frameKey.value++; }
+watch(ports, list => { if (!list.includes(curPort.value)) curPort.value = list[0] || 0; }, { immediate: true });
 let timer = null;
 
 async function onSaveEdit(form, close) {
@@ -31,10 +35,10 @@ async function onSaveEdit(form, close) {
   toast('✅ 已保存，重新拨一下开关生效', 'ok');
 }
 
-const url = computed(() => svcDisplayUrl(props.module || {}));
+const url = computed(() => svcDisplayUrl(props.module || {}, curPort.value));
 async function refresh() {
   const j = await serviceState(props.module.key);
-  if (j && j.ok) { open.value = !!j.open; starting.value = !!j.starting; pid.value = j.pid || null; }
+  if (j && j.ok) { open.value = !!j.open; starting.value = !!j.starting; pid.value = j.pid || null; if (props.module) props.module.openPorts = j.openPorts || []; }
 }
 async function loadLog(toBottom) {
   const t = await serviceLogs(props.module.key);
@@ -61,7 +65,7 @@ onUnmounted(() => clearInterval(timer));
       <span class="view-ico"><img v-if="module.iconUrl" :src="module.iconUrl" style="width:20px;height:20px;object-fit:contain;display:block" alt="" /><span class="mono-badge" v-else-if="!module.ico">{{ (module.name[0] || '模').toUpperCase() }}</span><svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="display:block;width:20px;height:20px"><path d="M4 7h16v10H4zM8 21h8M9 11l2 2 4-4"/></svg></span>
       <span class="view-name">{{ module.name }}</span>
       <span class="svc-chip" :class="{ on: open, ing: starting }">{{ open ? '运行中' : (starting ? '启动中' : '离线') }}<b v-if="pid"> · PID {{ pid }}</b></span>
-      <span class="svc-addr" v-if="url" :title="url">{{ url }}</span>
+      <span class="svc-portpick" v-if="ports.length"><button v-for="p in ports" :key="p" class="svc-portchip" :class="{ on: (curPort || ports[0]) === p, live: (module.openPorts||[]).includes(p) }" @click="pickPort(p)" :title="'内嵌端口 ' + p + ((module.openPorts||[]).includes(p) ? ' · 运行中' : ' · 未监听')">{{ p }}</button></span>
       <span style="flex:1"></span>
       <button class="qq-btn" @click="reloadFrame" :disabled="!open">↻ 刷新页面</button>
       <button class="qq-btn" @click="showEdit = true">✎ 编辑</button>
@@ -98,6 +102,11 @@ onUnmounted(() => clearInterval(timer));
 .svc-chip.ing{color:#f59e0b;border-color:rgba(245,158,11,.45)}
 .svc-chip b{font-weight:600}
 .svc-addr{font-size:11px;color:var(--muted);font-family:Consolas,monospace;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.svc-portpick{display:inline-flex;gap:4px;margin-left:8px}
+.svc-portchip{background:rgba(255,255,255,.05);border:1px solid var(--border);border-radius:6px;color:var(--muted);font-family:Consolas,monospace;font-size:10.5px;padding:3px 8px;cursor:pointer;transition:all .15s}
+.svc-portchip:hover{border-color:var(--accent)}
+.svc-portchip.live{color:#34d399;border-color:rgba(52,211,153,.4)}
+.svc-portchip.on{color:var(--fg);border-color:var(--accent);background:rgba(56,189,248,.16)}
 .qq-btn{background:linear-gradient(135deg,rgba(255,255,255,.14) 0%,rgba(255,255,255,.055) 42%,rgba(255,255,255,.025) 100%),rgba(30,32,36,.55);border:1px solid rgba(255,255,255,.12);color:var(--fg);border-radius:9px;padding:6px 12px;font-size:12px;font-weight:600;cursor:pointer;transition:all .15s;backdrop-filter:blur(18px) saturate(1.4);box-shadow:inset 0 1px 0 rgba(255,255,255,.1);flex-shrink:0}
 .qq-btn:hover:not(:disabled){border-color:rgba(255,255,255,.25)}
 .qq-btn:disabled{opacity:.4;cursor:not-allowed}

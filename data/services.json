@@ -3,6 +3,7 @@
   "key": "comfyui",
   "name": "comfyui",
   "port": 8188,
+  "ports": [],
   "path": "C:\\work\\comfyui-rocm\\comfyui-user.bat",
   "url": "",
   "ico": "svc",
