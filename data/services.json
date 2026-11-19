@@ -1,0 +1,42 @@
+[
+ {
+  "key": "comfyui",
+  "name": "comfyui",
+  "port": 8188,
+  "path": "C:\\work\\comfyui-rocm\\comfyui-user.bat",
+  "url": "",
+  "ico": "svc",
+  "icon": "C:\\work\\comfyui-rocm\\favicon_multi.ico",
+  "createdAt": 1794984814845
+ },
+ {
+  "key": "snowluma",
+  "name": "snowluma",
+  "port": 5099,
+  "path": "C:\\work\\SnowLuma-v2.4.2-win-x64\\launcher.bat",
+  "url": "",
+  "ico": "svc",
+  "icon": "C:\\work\\GPT-SoVITS-v2pro-20261006\\favicon_multi.ico",
+  "createdAt": 1794996048648
+ },
+ {
+  "key": "svc-ofm",
+  "name": "our-free-model",
+  "port": 18900,
+  "path": "C:\\work\\Our Free Model\\ofm-service.bat",
+  "url": "",
+  "ico": "svc",
+  "icon": "C:\\work\\Our Free Model\\favicon_multi.ico",
+  "createdAt": 1795002483725
+ },
+ {
+  "key": "alist",
+  "name": "Alist",
+  "port": 5244,
+  "path": "C:\\work\\alist\\start-alist.bat",
+  "url": "",
+  "ico": "svc",
+  "icon": "C:\\work\\alist\\favicon_multi.ico",
+  "createdAt": 1795064070400
+ }
+]
